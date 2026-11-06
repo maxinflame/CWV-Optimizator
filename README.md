@@ -12,27 +12,32 @@ npx playwright install chromium
 # нужен Cursor Agent CLI: https://cursor.com/docs/cli/installation
 ```
 
-Скопируйте `website.config.example.ts` или используйте встроенный конфиг для fixture:
+Готовые конфиги лежат в `configs/` и в Git не входят. Образец остаётся в корне: оттуда его можно передать в пайплайн напрямую, импорт `./src/website/config.js` резолвится из корня репозитория.
+
+```bash
+mkdir -p configs
+cp website.config.example.ts configs/website.config.ts
+```
+
+В копии замените импорт на `../src/website/config.js`.
+
+Образец уже указывает на `fixtures/slow-site`, поэтому для демо его можно передать напрямую:
 
 ```bash
 # только замеры
-npm run pipeline -- --project "$(pwd)/fixtures/slow-site" --config ./website.config.ts --measure-only
+npm run pipeline -- --project "$(pwd)/fixtures/slow-site" --config ./website.config.example.ts --measure-only
 
 # замеры уже запущенного сайта (OSPanel, Docker и т.п.)
-npm run pipeline -- --project "$(pwd)/fixtures/slow-site" --config ./website.config.ts --measure-only --base-url http://127.0.0.1:4177
+npm run pipeline -- --project "$(pwd)/fixtures/slow-site" --config ./website.config.example.ts --measure-only --base-url http://127.0.0.1:4177
 
 # проверка окружения (Git, Cursor Agent login/CLI, build/health)
-npm run pipeline -- --project "$(pwd)/fixtures/slow-site" --config ./website.config.ts --validate
+npm run pipeline -- --project "$(pwd)/fixtures/slow-site" --config ./website.config.example.ts --validate
 
 # автономная оптимизация
-npm run pipeline -- --project "$(pwd)/fixtures/slow-site" --config ./website.config.ts --agent cursor
-
-# symbl.cc (Docker уже запущен на :8000; лучше из WSL)
-npm run pipeline -- --project /home/maxinflame/Projects/symbl.cc --config ./website.symbl.config.ts --validate
-npm run pipeline -- --project /home/maxinflame/Projects/symbl.cc --config ./website.symbl.config.ts --agent cursor
+npm run pipeline -- --project "$(pwd)/fixtures/slow-site" --config ./website.config.example.ts --agent cursor
 ```
 
-На Windows укажите абсолютный путь к сайту, например `C:/Projects/.../fixtures/slow-site`. Для symbl предпочтителен WSL-путь к репозиторию.
+Для своего сайта правьте `configs/website.config.ts` или `configs/website.<имя>.config.ts`. На Windows укажите абсолютный путь к репозиторию, например `C:/Projects/.../fixtures/slow-site`.
 
 ## Требования к сайту
 
@@ -49,8 +54,7 @@ npm run pipeline -- --project /home/maxinflame/Projects/symbl.cc --config ./webs
 
 - [docs/website.md](docs/website.md) — архитектура, Git safety, методика замеров
 - [docs/metrics.md](docs/metrics.md) — метрики CWV
-- [website.config.example.ts](website.config.example.ts) — пример конфигурации
-- [website.symbl.config.ts](website.symbl.config.ts) — Docker-проект symbl.cc
+- [website.config.example.ts](website.config.example.ts) — образец конфигурации
 - Fixture с намеренно медленной загрузкой: `fixtures/slow-site`
 
 ## Тесты

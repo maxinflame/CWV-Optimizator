@@ -1,5 +1,9 @@
 .DS_Store
 node_modules/
 fixtures/slow-site/dist/
+src/gui/web/dist/
 runs/website/
 coverage/
+
+# Локальные конфиги пайплайна. Образец — website.config.example.ts в корне.
+configs/

@@ -9,5 +9,6 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src", "tests", "website.config.ts", "website.config.example.ts"]
+  "include": ["src", "tests", "website.config.example.ts"],
+  "exclude": ["src/gui/web/src"]
 }

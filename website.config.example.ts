@@ -15,8 +15,8 @@ export default {
     model: "auto",
   },
   website: {
-    // External (Docker/OSPanel): baseUrl + buildCommand без start/port.
-    // Пример: website.symbl.config.ts — npm run build во frontend/, сайт на :8000.
+    // Внешний сайт (Docker/OSPanel): baseUrl и buildCommand, без startCommand и port.
+    // Локальная копия: configs/website.<имя>.config.ts, импорт "../src/website/config.js".
     // baseUrl: "http://localhost:8000",
     // cwd: "frontend",
     buildCommand: "npm run build",

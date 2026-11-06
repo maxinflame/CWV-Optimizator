@@ -1,14 +1,25 @@
 import { chromium, type Browser, type Page } from "playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { WebsiteConfig, PageScenarioConfig, ScenarioKind } from "../config.js";
+import type {
+  WebsiteConfig,
+  PageScenarioConfig,
+  ScenarioKind,
+} from "../config.js";
 import { collectorInitScript, type CollectorSnapshot } from "./collector.js";
 import { runScenarioActions } from "./scenarios.js";
 import type { BrowserMeasurement, ScenarioAggregate } from "./types.js";
 import { summarize } from "../../metrics.js";
 
-function available(value: number | null | undefined): BrowserMeasurement["lcpMs"] {
-  if (value === null || value === undefined || !Number.isFinite(value) || value < 0)
+function available(
+  value: number | null | undefined,
+): BrowserMeasurement["lcpMs"] {
+  if (
+    value === null ||
+    value === undefined ||
+    !Number.isFinite(value) ||
+    value < 0
+  )
     return { value: null, availability: "unavailable" };
   return { value, availability: "available" };
 }
@@ -179,14 +190,19 @@ export class WebsiteBenchmarkRunner {
     scenarioKey: string,
     repeats: number,
     label: string,
+    onSample?: (index: number, total: number) => void,
   ): Promise<ScenarioAggregate> {
     await mkdir(this.artifactDirectory, { recursive: true });
     const samples: BrowserMeasurement[] = [];
     for (let index = 0; index < repeats; index++) {
+      onSample?.(index + 1, repeats);
       const sample = await this.measureOnce(scenarioKey);
       samples.push(sample);
       await writeFile(
-        join(this.artifactDirectory, `${label}-${scenarioKey.replace(":", "_")}-${index + 1}.json`),
+        join(
+          this.artifactDirectory,
+          `${label}-${scenarioKey.replace(":", "_")}-${index + 1}.json`,
+        ),
         `${JSON.stringify(sample, null, 2)}\n`,
       );
     }
@@ -204,7 +220,9 @@ export function aggregateSamples(
   for (const key of keys) {
     const values = samples
       .map((sample) => sample[key])
-      .filter((value) => value.availability === "available" && value.value !== null)
+      .filter(
+        (value) => value.availability === "available" && value.value !== null,
+      )
       .map((value) => value.value as number);
     if (!values.length) {
       medians[key] = null;

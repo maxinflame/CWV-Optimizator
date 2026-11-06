@@ -3,8 +3,8 @@ import type { WebsiteConfig } from "./config.js";
 import { loadWebsiteConfig } from "./config.js";
 
 export const websiteUsage = `Usage:
-  npm run pipeline -- --project <abs-path> --config <website.config.ts> [--measure-only | --validate | --agent cursor] [--base-url <url>]
-  npm run pipeline -- website --project <abs-path> --config <website.config.ts> [--measure-only | --validate | --agent cursor] [--base-url <url>]`;
+  npm run pipeline -- --project <abs-path> --config <configs/website.config.ts> [--measure-only | --validate | --agent cursor] [--base-url <url>]
+  npm run pipeline -- website --project <abs-path> --config <configs/website.config.ts> [--measure-only | --validate | --agent cursor] [--base-url <url>]`;
 
 export type WebsiteCliCommand = {
   type: "website";

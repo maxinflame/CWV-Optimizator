@@ -14,10 +14,7 @@ import type { WebsiteConfig } from "./config.js";
 import { scenarioKeys, usesExternalServer } from "./config.js";
 import { GitWorkspace, type GitState } from "./git.js";
 import { withProjectLock } from "./lock.js";
-import {
-  WebsiteBenchmarkRunner,
-  aggregateSamples,
-} from "./measure/runner.js";
+import { WebsiteBenchmarkRunner, aggregateSamples } from "./measure/runner.js";
 import type { ScenarioAggregate } from "./measure/types.js";
 import { runLighthouseAudit } from "./lighthouse.js";
 import {
@@ -31,6 +28,7 @@ import {
   type WebsiteAttemptRecord,
   type WebsiteReport,
 } from "./report.js";
+import { scenarioPhrase, type PipelineProgress } from "./progress.js";
 import { ProductionServer } from "./server.js";
 import {
   assertFingerprintsUnchanged,
@@ -52,6 +50,10 @@ export interface WebsitePipelineOptions {
   agentProvider?: string;
   signal: AbortSignal;
   startedAt?: Date;
+  /** Каталог прогона известен до окончания пайплайна, чтобы GUI читал report.json. */
+  onRunDirectory?: (directory: string) => void;
+  /** Текущий шаг для интерфейса. Не заменяет report.json. */
+  onProgress?: (progress: PipelineProgress) => void;
 }
 
 async function measureAll(
@@ -59,10 +61,15 @@ async function measureAll(
   keys: string[],
   repeats: number,
   label: string,
+  onSample?: (scenario: string, index: number, total: number) => void,
 ): Promise<ScenarioAggregate[]> {
   const results: ScenarioAggregate[] = [];
   for (const key of keys) {
-    results.push(await runner.measureBatch(key, repeats, label));
+    results.push(
+      await runner.measureBatch(key, repeats, label, (index, total) =>
+        onSample?.(key, index, total),
+      ),
+    );
   }
   return results;
 }
@@ -70,20 +77,29 @@ async function measureAll(
 export async function validateWebsitePrerequisites(
   config: WebsiteConfig,
   root: string,
+  onProgress?: (progress: PipelineProgress) => void,
 ): Promise<string[]> {
   const notes: string[] = [];
   const projectPath = resolve(config.workspace.path);
   const external = usesExternalServer(config);
-  const git = new GitWorkspace(projectPath, join(root, "runs", "website", "validate"));
+  const git = new GitWorkspace(
+    projectPath,
+    join(root, "runs", "website", "validate"),
+  );
+  onProgress?.({ phase: "repository" });
   await git.assertRepository();
   if (external) {
-    notes.push(`Git repository at ${projectPath} (clean tree not required for external URL)`);
+    notes.push(
+      `Git repository at ${projectPath} (clean tree not required for external URL)`,
+    );
   } else {
+    onProgress?.({ phase: "clean-tree" });
     await git.assertClean();
     notes.push(`Git repository clean at ${projectPath}`);
   }
 
   // До build/health: без рабочего агента --validate не должен проходить «успешно».
+  onProgress?.({ phase: "agent-ready" });
   const agent = createAgent(config.agent);
   notes.push(`Agent: ${await agent.assertReady()}`);
 
@@ -96,14 +112,18 @@ export async function validateWebsitePrerequisites(
   try {
     if (external) {
       if (config.website.buildCommand) {
+        onProgress?.({ phase: "build" });
         await server.build(controller.signal);
         notes.push("External rebuild (buildCommand) succeeded");
       }
+      onProgress?.({ phase: "health" });
       await server.waitUntilHealthy(controller.signal);
       notes.push(`External server reachable at ${server.baseUrl}`);
     } else {
+      onProgress?.({ phase: "build" });
       await server.build(controller.signal);
       notes.push("Production build succeeded");
+      onProgress?.({ phase: "server" });
       await server.start(controller.signal);
       notes.push(`Production server ready at ${server.baseUrl}`);
     }
@@ -124,6 +144,7 @@ export async function executeWebsitePipeline(
   const runId = `${startedAt.toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
   const directory = join(options.root, "runs", "website", runId);
   await mkdir(directory, { recursive: true });
+  options.onRunDirectory?.(directory);
 
   const report = createWebsiteReport(config, startedAt);
   await saveWebsiteReport(directory, report);
@@ -136,7 +157,11 @@ export async function executeWebsitePipeline(
     );
     const external = usesExternalServer(config);
     const git = new GitWorkspace(projectPath, directory);
-    const server = new ProductionServer(config, projectPath, join(directory, "logs"));
+    const server = new ProductionServer(
+      config,
+      projectPath,
+      join(directory, "logs"),
+    );
     const runner = new WebsiteBenchmarkRunner(
       config,
       server.baseUrl,
@@ -144,10 +169,37 @@ export async function executeWebsitePipeline(
     );
     const keys = scenarioKeys(config);
     let state: GitState | undefined;
+    const tell = (progress: PipelineProgress) => options.onProgress?.(progress);
+    const watchMeasure =
+      (context: {
+        measureKind: PipelineProgress["measureKind"];
+        role?: PipelineProgress["role"];
+        iteration?: number;
+      }) =>
+      (scenario: string, index: number, total: number) => {
+        const phrase = scenarioPhrase(config, scenario);
+        tell({
+          phase: "measure",
+          index,
+          total,
+          pagePath: phrase.pagePath,
+          scenario: phrase.scenario,
+          measureKind: context.measureKind,
+          role: context.role,
+          iteration: context.iteration,
+          iterationTotal: context.iteration
+            ? config.budgets.maxIterations
+            : undefined,
+        });
+      };
 
     try {
       if (options.validateOnly) {
-        const notes = await validateWebsitePrerequisites(config, options.root);
+        const notes = await validateWebsitePrerequisites(
+          config,
+          options.root,
+          tell,
+        );
         report.status = "completed";
         report.stopReason = `Validation OK:\n${notes.join("\n")}`;
         report.finishedAt = new Date().toISOString();
@@ -155,10 +207,14 @@ export async function executeWebsitePipeline(
         return { directory, report };
       }
 
+      tell({ phase: "repository" });
       await git.assertRepository();
       // measure-only против внешнего URL не мутирует дерево — dirty OK.
       // Оптимизация (в т.ч. Docker/external) требует чистый tree для Git safety.
-      if (!(external && options.measureOnly)) await git.assertClean();
+      if (!(external && options.measureOnly)) {
+        tell({ phase: "clean-tree" });
+        await git.assertClean();
+      }
 
       if (options.measureOnly) {
         state = {
@@ -177,20 +233,26 @@ export async function executeWebsitePipeline(
               : `External URL mode at ${server.baseUrl}: pipeline only health-checks; it does not start/stop the server process.`,
           );
         }
+        tell({
+          phase: external && !config.website.buildCommand ? "health" : "build",
+        });
         await budget.within(() =>
           external && !config.website.buildCommand
             ? server.waitUntilHealthy(budget.signal)
             : server.ensureReady(budget.signal),
         );
+        tell({ phase: "browser" });
         await runner.open();
         report.baseline = await measureAll(
           runner,
           keys,
           config.measurements.baselineRepeats,
           "baseline",
+          watchMeasure({ measureKind: "baseline" }),
         );
         report.bottleneck = selectBottleneck(report.baseline, config);
         if (config.pages[0]) {
+          tell({ phase: "lighthouse", label: "baseline" });
           report.lighthouse = {
             baseline: await runLighthouseAudit({
               config,
@@ -209,6 +271,7 @@ export async function executeWebsitePipeline(
         return { directory, report };
       }
 
+      tell({ phase: "branch" });
       state = await git.startOptimization();
       report.git = state;
       report.bestCommit = state.acceptedCommit;
@@ -219,22 +282,28 @@ export async function executeWebsitePipeline(
       }
       await saveWebsiteReport(directory, report);
 
-      const protectedFingerprints = await fingerprintProtectedPaths(options.root, [
-        "src/website",
-        "package.json",
-      ]);
+      const protectedFingerprints = await fingerprintProtectedPaths(
+        options.root,
+        ["src/website", "package.json"],
+      );
 
+      tell({
+        phase: external && !config.website.buildCommand ? "health" : "build",
+      });
       await budget.within(() => server.ensureReady(budget.signal));
+      tell({ phase: "browser" });
       await runner.open();
       report.baseline = await measureAll(
         runner,
         keys,
         config.measurements.baselineRepeats,
         "baseline",
+        watchMeasure({ measureKind: "baseline" }),
       );
       let current = report.baseline;
       report.bottleneck = selectBottleneck(current, config);
       if (config.pages[0]) {
+        tell({ phase: "lighthouse", label: "baseline" });
         report.lighthouse = {
           baseline: await runLighthouseAudit({
             config,
@@ -247,6 +316,7 @@ export async function executeWebsitePipeline(
       await saveWebsiteReport(directory, report);
 
       const agent = createAgent(config.agent);
+      tell({ phase: "agent-ready" });
       await agent.version();
 
       for (let index = 1; index <= config.budgets.maxIterations; index++) {
@@ -296,6 +366,16 @@ export async function executeWebsitePipeline(
               filesModified: item.filesModified,
             }));
 
+          const phrase = scenarioPhrase(config, bottleneck.scenario);
+          tell({
+            phase: "agent",
+            iteration: index,
+            iterationTotal: config.budgets.maxIterations,
+            model: config.agent.model,
+            metric: bottleneck.metric,
+            pagePath: phrase.pagePath,
+            scenario: phrase.scenario,
+          });
           const response = await budget.within(() =>
             agent.run({
               cwd: projectPath,
@@ -319,22 +399,47 @@ export async function executeWebsitePipeline(
           );
           attempt.hypothesis = readWebsiteHypothesis(response);
           attempt.agentSummary =
-            typeof response === "object" ? JSON.stringify(response).slice(0, 4000) : String(response);
+            typeof response === "object"
+              ? JSON.stringify(response).slice(0, 4000)
+              : String(response);
           await saveWebsiteReport(directory, report);
 
           attempt.stage = "commit";
+          tell({
+            phase: "commit",
+            iteration: index,
+            iterationTotal: config.budgets.maxIterations,
+          });
           const candidateCommit = await git.commitCandidate(
             `cwv: ${attempt.hypothesis.slice(0, 72)}`,
             state,
           );
           attempt.gitRevision = candidateCommit;
-          attempt.filesModified = await git.changedFiles(state.acceptedCommit, candidateCommit);
+          attempt.filesModified = await git.changedFiles(
+            state.acceptedCommit,
+            candidateCommit,
+          );
 
           attempt.stage = "verify";
+          tell({
+            phase: "verify",
+            iteration: index,
+            iterationTotal: config.budgets.maxIterations,
+          });
           await budget.within(() => server.rebuildAndStart(budget.signal));
           attempt.buildOk = true;
+          tell({
+            phase: "tests",
+            iteration: index,
+            iterationTotal: config.budgets.maxIterations,
+          });
           await runProjectTests(config, projectPath, budget.signal);
           attempt.testsOk = true;
+          tell({
+            phase: "smoke",
+            iteration: index,
+            iterationTotal: config.budgets.maxIterations,
+          });
           await smokeTest(config, server, join(directory, attempt.id, "smoke"));
           attempt.smokeOk = true;
 
@@ -344,12 +449,14 @@ export async function executeWebsitePipeline(
             [bottleneck.scenario],
             config.measurements.quickRepeats,
             `${attempt.id}-quick`,
+            watchMeasure({ measureKind: "quick", iteration: index }),
           );
           attempt.quick = quick;
           const rejectedQuick = quickReject(
             config,
             bottleneck.metric,
-            current.find((item) => item.scenario === bottleneck.scenario) ?? current[0]!,
+            current.find((item) => item.scenario === bottleneck.scenario) ??
+              current[0]!,
             quick[0]!,
           );
           if (rejectedQuick.reject) {
@@ -361,9 +468,8 @@ export async function executeWebsitePipeline(
               targetMetric: bottleneck.metric,
               scenario: bottleneck.scenario,
               referenceMedian:
-                current.find((item) => item.scenario === bottleneck.scenario)?.medians[
-                  bottleneck.metric
-                ] ?? null,
+                current.find((item) => item.scenario === bottleneck.scenario)
+                  ?.medians[bottleneck.metric] ?? null,
               candidateMedian: quick[0]?.medians[bottleneck.metric] ?? null,
               improvementPercent: null,
               regressions: [],
@@ -398,10 +504,23 @@ export async function executeWebsitePipeline(
           for (const batch of config.measurements.confirmationBatches) {
             budget.check();
             const commit =
-              batch.role === "candidate" ? candidateCommit : state.acceptedCommit;
+              batch.role === "candidate"
+                ? candidateCommit
+                : state.acceptedCommit;
+            tell({
+              phase: "checkout",
+              role: batch.role,
+              iteration: index,
+              iterationTotal: config.budgets.maxIterations,
+            });
             await server.stop();
             await runner.close();
             await git.checkoutCommit(commit);
+            tell({
+              phase: "build",
+              iteration: index,
+              iterationTotal: config.budgets.maxIterations,
+            });
             await server.rebuildAndStart(budget.signal);
             await runner.open();
             const measured = await measureAll(
@@ -409,6 +528,11 @@ export async function executeWebsitePipeline(
               [bottleneck.scenario],
               batch.repeats,
               `${attempt.id}-${batch.role}-${order.length + 1}`,
+              watchMeasure({
+                measureKind: "confirm",
+                role: batch.role,
+                iteration: index,
+              }),
             );
             order.push({ ...batch, commit });
             if (batch.role === "candidate") candidateSamples.push(...measured);
@@ -450,7 +574,9 @@ export async function executeWebsitePipeline(
               item.scenario === bottleneck.scenario ? candidateAgg : item,
             );
           } else {
-            attempt.status = decision.inconclusive ? "inconclusive" : "rejected";
+            attempt.status = decision.inconclusive
+              ? "inconclusive"
+              : "rejected";
             await git.discardCandidate(state);
             await server.stop();
             await runner.close();
@@ -473,7 +599,9 @@ export async function executeWebsitePipeline(
           try {
             if (state) await git.discardCandidate(state);
           } catch (restoreError) {
-            attempt.errors.push(`Restore failed: ${errorMessage(restoreError)}`);
+            attempt.errors.push(
+              `Restore failed: ${errorMessage(restoreError)}`,
+            );
           }
           if (budget.interrupted) throw error;
         } finally {
@@ -488,8 +616,10 @@ export async function executeWebsitePipeline(
         await server.stop();
         await runner.close();
         await git.ensureOnOptimizationBranch(state);
+        tell({ phase: "build" });
         await server.rebuildAndStart(budget.signal);
         await runner.open();
+        tell({ phase: "lighthouse", label: "final" });
         report.lighthouse = {
           ...report.lighthouse,
           final: await runLighthouseAudit({
