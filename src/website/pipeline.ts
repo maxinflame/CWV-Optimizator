@@ -20,6 +20,7 @@ import { runLighthouseAudit } from "./lighthouse.js";
 import {
   createWebsitePrompt,
   readWebsiteHypothesis,
+  websiteResponseSchema,
   type WebsiteAttemptSummary,
 } from "./prompt.js";
 import {
@@ -362,8 +363,15 @@ export async function executeWebsitePipeline(
               hypothesis: item.hypothesis,
               targetMetric: item.targetMetric,
               scenario: item.targetScenario,
-              decisionReasons: item.decision?.reasons,
+              decisionReasons: [
+                ...(item.decision?.reasons ?? []),
+                ...item.errors,
+              ],
               filesModified: item.filesModified,
+              improvementPercent: item.decision?.improvementPercent ?? null,
+              referenceMedian: item.decision?.referenceMedian ?? null,
+              candidateMedian: item.decision?.candidateMedian ?? null,
+              regressions: item.decision?.regressions,
             }));
 
           const phrase = scenarioPhrase(config, bottleneck.scenario);
@@ -387,12 +395,7 @@ export async function executeWebsitePipeline(
                 aggregates: current,
                 history,
               }),
-              responseSchema: {
-                type: "object",
-                properties: { hypothesis: { type: "string" } },
-                required: ["hypothesis"],
-                additionalProperties: false,
-              },
+              responseSchema: websiteResponseSchema,
               signal: budget.signal,
               tools: [],
             }),

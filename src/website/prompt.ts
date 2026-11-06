@@ -1,6 +1,7 @@
 import type { CwvMetric, WebsiteConfig } from "./config.js";
 import type { Bottleneck } from "./acceptance.js";
 import type { ScenarioAggregate } from "./measure/types.js";
+import { buildOptimizationContext } from "./diagnostics.js";
 
 export interface WebsiteAttemptSummary {
   id: string;
@@ -10,11 +11,45 @@ export interface WebsiteAttemptSummary {
   scenario?: string;
   decisionReasons?: string[];
   filesModified?: string[];
+  improvementPercent?: number | null;
+  referenceMedian?: number | null;
+  candidateMedian?: number | null;
+  regressions?: Array<{ metric: CwvMetric; percent: number }>;
 }
 
 const HYPOTHESIS_HISTORY_MAX = 200;
 
-export function summarizeHypothesis(hypothesis: string | undefined): string | undefined {
+const STATIC_INSTRUCTIONS = [
+  "You are optimizing an existing website for Core Web Vitals in the current working directory.",
+  "Make exactly one focused optimization for the bottleneck in the context below.",
+  "Step 1 — Understand the bottleneck. Analyze the measurements. Identify the most likely cause supported by the diagnostics. Distinguish measured facts from hypotheses.",
+  "Step 2 — Inspect relevant code. Inspect only the parts of the website likely to affect the selected metric on the target page and scenario. Do not scan unrelated files or edit unrelated routes.",
+  "Step 3 — Form one hypothesis. Choose a single focused optimization and explain how that code change should cause the improvement.",
+  "Step 4 — Implement the smallest reasonable production-ready change. Leave unrelated code unchanged. The pipeline runs the production build after you finish.",
+  "Step 5 — Report the hypothesis, supporting evidence, actual changes, and regression risks. Do not claim success; the pipeline measures the candidate.",
+  "potentialBottlenecks lists the largest measured delay components or the most frequent layout-shift sources. Treat them as hints, not a confirmed root cause.",
+  "Preserve functionality, visual appearance, and accessibility. Do not remove, hide, or relocate meaningful content. Do not optimize for benchmark detection.",
+  "Do not edit measurement code, scenarios, thresholds, or pipeline configuration. Do not modify Git history or run git commit, reset, or checkout. Do not run Lighthouse or other performance benchmarks. Do not add unnecessary dependencies.",
+  "Do not repeat a previously unsuccessful hypothesis without new evidence or a meaningfully different implementation. Editing the same files as a previous attempt is allowed when the implementation is meaningfully different.",
+  'Final answer JSON: {"hypothesis":"...","evidence":"...","expectedImpact":"...","changedFiles":["..."],"regressionRisks":["..."]}. Keep strings short. Git, not changedFiles, is the source of truth for the diff.',
+].join("\n");
+
+export const websiteResponseSchema: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    hypothesis: { type: "string" },
+    evidence: { type: "string" },
+    expectedImpact: { type: "string" },
+    changedFiles: { type: "array", items: { type: "string" } },
+    regressionRisks: { type: "array", items: { type: "string" } },
+  },
+  required: ["hypothesis"],
+  additionalProperties: false,
+};
+
+export function summarizeHypothesis(
+  hypothesis: string | undefined,
+): string | undefined {
   if (!hypothesis) return undefined;
   const flat = hypothesis.replace(/\s+/g, " ").trim();
   if (!flat) return undefined;
@@ -23,72 +58,17 @@ export function summarizeHypothesis(hypothesis: string | undefined): string | un
     : `${flat.slice(0, HYPOTHESIS_HISTORY_MAX - 1)}…`;
 }
 
-function modeValue<T extends string>(values: Array<T | undefined | null>): T | undefined {
-  const counts = new Map<T, number>();
-  for (const value of values) {
-    if (!value) continue;
-    counts.set(value, (counts.get(value) ?? 0) + 1);
+function metricInstructions(metric: CwvMetric): string {
+  switch (metric) {
+    case "lcpMs":
+      return "LCP: prioritize the largest avoidable delay in the breakdown. Investigate resource discovery, loading, server response, or render delay only for that subpart. Do not apply generic optimizations unrelated to the measured LCP element.";
+    case "inpMs":
+      return "INP: focus on the measured interaction. Distinguish input delay, processing duration, and presentation delay. Investigate event handlers, synchronous work, rendering, or layout only when that component is the large one. Long animation frames and main-thread blocking are context; do not assume they caused this interaction.";
+    case "cls":
+      return "CLS: focus on the elements associated with the layout shifts. Preserve the intended layout, content, and visual appearance. Do not hide elements or remove content to reduce CLS.";
+    case "fcpMs":
+      return "FCP: investigate the initial rendering path. Preserve essential functionality. Do not improve FCP at the expense of significant LCP or INP regressions. Do not infer render-blocking resources or font-loading problems from transfer sizes alone.";
   }
-  let best: T | undefined;
-  let bestCount = 0;
-  for (const [value, count] of counts) {
-    if (count > bestCount) {
-      best = value;
-      bestCount = count;
-    }
-  }
-  return best;
-}
-
-function medianNumber(values: Array<number | null | undefined>): number | undefined {
-  const nums = values.filter((value): value is number => typeof value === "number");
-  if (!nums.length) return undefined;
-  nums.sort((a, b) => a - b);
-  const mid = Math.floor(nums.length / 2);
-  return nums.length % 2 === 0 ? (nums[mid - 1]! + nums[mid]!) / 2 : nums[mid];
-}
-
-function measurementHints(aggregate: ScenarioAggregate) {
-  const samples = aggregate.samples;
-  const lcpElement = modeValue(samples.map((sample) => sample.lcpAttribution?.element));
-  const lcpUrlSample = samples.find(
-    (sample) => sample.lcpAttribution?.element === lcpElement && sample.lcpAttribution?.url,
-  );
-  const clsSources = [
-    ...new Set(
-      samples.flatMap((sample) => sample.clsAttribution?.sources ?? []).filter(Boolean),
-    ),
-  ];
-  const clsLargest = medianNumber(
-    samples.map((sample) => sample.clsAttribution?.largestShiftValue),
-  );
-
-  return {
-    lcpAttribution: lcpElement
-      ? {
-          element: lcpElement,
-          url: lcpUrlSample?.lcpAttribution?.url ?? null,
-        }
-      : undefined,
-    clsAttribution:
-      clsSources.length || clsLargest !== undefined
-        ? {
-            largestShiftValue: clsLargest ?? null,
-            sources: clsSources,
-          }
-        : undefined,
-    diagnostics: {
-      resourceTransferBytes: medianNumber(
-        samples.map((sample) => sample.diagnostics?.resourceTransferBytes),
-      ),
-      jsTransferBytes: medianNumber(
-        samples.map((sample) => sample.diagnostics?.jsTransferBytes),
-      ),
-      cssTransferBytes: medianNumber(
-        samples.map((sample) => sample.diagnostics?.cssTransferBytes),
-      ),
-    },
-  };
 }
 
 export function createWebsitePrompt(options: {
@@ -97,53 +77,12 @@ export function createWebsitePrompt(options: {
   aggregates: ScenarioAggregate[];
   history: WebsiteAttemptSummary[];
 }): string {
-  const { config, bottleneck, aggregates, history } = options;
-  const pagePaths = config.pages.map((page) => `${page.id} (${page.path})`).join(", ");
+  const context = buildOptimizationContext(options);
   return [
-    "You are optimizing an existing website for Core Web Vitals in the current working directory.",
-    "Make exactly one focused optimization for the identified bottleneck. Do not decide whether it succeeded — the pipeline measures acceptance.",
-    `Change only code that affects the configured measurement pages (${pagePaths}) and the bottleneck scenario ${bottleneck.scenario}. Do not edit unrelated routes or pages "while you are here".`,
-    "Target the lab attribution in the JSON (LCP element / CLS sources). Do not optimize a different element unless attribution shows it.",
-    "Rely on the lab measurements in this prompt. Do not call external PageSpeed Insights / CrUX / PSI APIs.",
-    "The pipeline commits your changes and runs website.buildCommand after you finish. Do not skip or defer the production-ready edit waiting for a manual rebuild.",
-    "Do not change the visual design, remove important content/functionality, or hide/relocate content merely to improve metrics.",
-    "Do not change benchmark code, measurement configuration, thresholds, pipeline files, or Git history policy files.",
-    "Do not introduce unnecessary dependencies. Prefer framework-appropriate production optimizations.",
-    "Do not repeat a previous attempt's file set or hypothesis when history shows it already failed.",
-    "Explain the hypothesis and the files you changed.",
-    "Return a JSON object as the final answer: {\"hypothesis\":\"...\"}.",
-    JSON.stringify(
-      {
-        objective: {
-          metric: bottleneck.metric,
-          scenario: bottleneck.scenario,
-          currentMedian: bottleneck.median,
-          internalThreshold: bottleneck.threshold,
-          direction: "lower-is-better",
-        },
-        thresholds: config.objectives.thresholds,
-        protectedMetrics: config.objectives.protectedMetrics,
-        currentMeasurements: aggregates.map((item) => ({
-          scenario: item.scenario,
-          medians: item.medians,
-          variability: item.variability,
-          ...measurementHints(item),
-        })),
-        history: history.map((attempt) => ({
-          id: attempt.id,
-          status: attempt.status,
-          hypothesis: summarizeHypothesis(attempt.hypothesis),
-          targetMetric: attempt.targetMetric,
-          scenario: attempt.scenario,
-          decisionReasons: attempt.decisionReasons,
-          filesModified: attempt.filesModified,
-        })),
-        pages: config.pages,
-      },
-      null,
-      2,
-    ),
-  ].join("\n\n");
+    STATIC_INSTRUCTIONS,
+    metricInstructions(options.bottleneck.metric),
+    `Context:\n${JSON.stringify(context)}`,
+  ].join("\n");
 }
 
 export function readWebsiteHypothesis(value: unknown): string {

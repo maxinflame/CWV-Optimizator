@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { AgentRequest, CodingAgent } from "../types.js";
 import { errorMessage } from "../../runtime/errors.js";
 import { isUncPath } from "../../website/command.js";
-import { extractHypothesis } from "./parse.js";
+import { parseCursorOutput } from "./parse.js";
 
 const exec = promisify(execFile);
 
@@ -272,16 +272,11 @@ export class CursorAgent implements CodingAgent {
       );
     }
 
-    let response: unknown;
-    try {
-      response = JSON.parse(stdout.trim()) as unknown;
-    } catch {
-      const hypothesis = extractHypothesis(stdout || stderr);
-      if (!hypothesis)
-        throw new Error(
-          `Cursor Agent returned no parseable hypothesis: ${errorMessage(new Error(stdout || stderr || "empty"))}`,
-        );
-      response = { hypothesis, raw: stdout };
+    const response = parseCursorOutput(stdout) ?? parseCursorOutput(stderr);
+    if (response === undefined) {
+      throw new Error(
+        `Cursor Agent returned no parseable hypothesis: ${errorMessage(new Error(stdout || stderr || "empty"))}`,
+      );
     }
 
     await writeFile(
