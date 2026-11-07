@@ -20,6 +20,12 @@ export default defineConfig(
     },
   },
   {
+    files: ["src/website/measure/browser/**/*.ts"],
+    languageOptions: {
+      globals: globals.browser,
+    },
+  },
+  {
     files: ["src/gui/web/src/**/*.{ts,tsx}"],
     languageOptions: {
       globals: globals.browser,

@@ -2,16 +2,16 @@
 
 Пайплайн измеряет лабораторные браузерные метрики через Playwright + Chromium. Метрики не усредняются в один score: выбирается узкое место относительно внутренних порогов, остальные защищённые метрики проверяются на регрессию.
 
-| Ключ | Метрика | Порог «хорошо» | Лучше |
-| --- | --- | --- | --- |
-| `lcpMs` | Largest Contentful Paint, мс | 2500 | Меньше |
-| `inpMs` | Interaction to Next Paint, мс | 200 | Меньше |
-| `cls` | Cumulative Layout Shift | 0.1 | Меньше |
-| `fcpMs` | First Contentful Paint, мс | 1800 | Меньше |
-| `ttfbMs` | Time to First Byte, мс | диагностическая | Меньше |
+| Ключ     | Метрика                       | Порог «хорошо»  | Лучше  |
+| -------- | ----------------------------- | --------------- | ------ |
+| `lcpMs`  | Largest Contentful Paint, мс  | 2500            | Меньше |
+| `inpMs`  | Interaction to Next Paint, мс | 200             | Меньше |
+| `cls`    | Cumulative Layout Shift       | 0.1             | Меньше |
+| `fcpMs`  | First Contentful Paint, мс    | 1800            | Меньше |
+| `ttfbMs` | Time to First Byte, мс        | диагностическая | Меньше |
 
 Для доступных метрик сохраняются серия замеров, медиана, p95, min, max и разброс. Недоступные значения помечаются как `unavailable`, а не как `0`.
 
 INP собирается только при сценарии `interaction`. Длительность клика Playwright не подменяет INP.
 
-Источники: PerformanceObserver, Navigation Timing, attribution LCP/CLS/INP в коллекторе браузера.
+Источники: `web-vitals/attribution` внутри Chromium (LCP, INP, CLS, FCP, TTFB). Long Animation Frames и объём передачи ресурсов остаются отдельной диагностикой.

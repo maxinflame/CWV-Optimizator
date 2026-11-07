@@ -14,7 +14,7 @@
 3. Playwright + Chromium, холодный context на каждый повтор.
 4. Init-script коллектора до navigation.
 5. CPU/network throttling через CDP.
-6. CLS — session-window расчёт.
+6. CLS и остальные CWV считаются библиотекой `web-vitals/attribution`, а не собственным суммированием Performance entries.
 7. Confirmation — последовательные batch candidate/reference с `rebuildAndStart` (managed: stop/build/start; external: build + health).
 
 ## Validate

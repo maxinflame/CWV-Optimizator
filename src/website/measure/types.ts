@@ -14,11 +14,19 @@ export interface LcpAttribution {
   resourceLoadDelay?: number | null;
   resourceLoadDuration?: number | null;
   elementRenderDelay?: number | null;
+  size?: number;
+  renderTime?: number;
+  loadTime?: number;
+  navigationType?: string;
+  rating?: string;
 }
 
 export interface ClsAttribution {
   largestShiftValue?: number | null;
   sources?: string[];
+  largestShiftTarget?: string;
+  largestShiftTime?: number;
+  loadState?: string;
 }
 
 export interface InpAttribution {
@@ -27,6 +35,11 @@ export interface InpAttribution {
   inputDelay?: number | null;
   processingDuration?: number | null;
   presentationDelay?: number | null;
+  loadState?: string;
+  interactionTime?: number;
+  nextPaintTime?: number;
+  longestScriptSubpart?: string;
+  longestScriptSource?: string;
 }
 
 export interface BrowserMeasurement {
@@ -50,6 +63,8 @@ export interface BrowserMeasurement {
     jsTransferBytes?: number;
     cssTransferBytes?: number;
     mainThreadBlockingMs?: number;
+    navigationResponseStart?: number | null;
+    inpUnavailableReason?: string;
   };
   raw?: unknown;
 }

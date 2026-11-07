@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Image LCP</title>
+    <link rel="preload" as="image" href="/hero.png" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #fff;
+      }
+      #photo {
+        display: block;
+        width: 100%;
+        height: auto;
+        background: #ddd;
+      }
+    </style>
+  </head>
+  <body>
+    <img
+      id="photo"
+      src="/hero.png"
+      alt="Product photo"
+      width="800"
+      height="600"
+      fetchpriority="high"
+    />
+  </body>
+</html>

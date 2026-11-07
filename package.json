@@ -9,7 +9,7 @@
   "scripts": {
     "pipeline": "node --import tsx src/main.ts",
     "gui": "node --import tsx src/gui/main.ts",
-    "check": "tsc --noEmit && tsc --noEmit -p src/gui/web/tsconfig.json",
+    "check": "tsc --noEmit && tsc --noEmit -p tsconfig.collector.json && tsc --noEmit -p src/gui/web/tsconfig.json",
     "test": "vitest run --dir tests",
     "format": "prettier --write src tests website.config.example.ts package.json tsconfig.json eslint.config.mjs .prettierrc.json",
     "format:check": "prettier --check src tests website.config.example.ts package.json tsconfig.json eslint.config.mjs .prettierrc.json",
@@ -34,6 +34,7 @@
     "vitest": "3.2.4"
   },
   "dependencies": {
+    "esbuild": "^0.28.2",
     "lighthouse": "^13.6.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

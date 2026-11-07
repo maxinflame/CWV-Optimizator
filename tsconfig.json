@@ -10,5 +10,5 @@
     "types": ["node"]
   },
   "include": ["src", "tests", "website.config.example.ts"],
-  "exclude": ["src/gui/web/src"]
+  "exclude": ["src/gui/web/src", "src/website/measure/browser"]
 }

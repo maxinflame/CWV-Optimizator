@@ -1,5 +1,9 @@
 import type { Page } from "playwright";
-import type { InteractionStep, PageScenarioConfig, ScenarioKind } from "../config.js";
+import type {
+  InteractionStep,
+  PageScenarioConfig,
+  ScenarioKind,
+} from "../config.js";
 
 export async function runScenarioActions(
   page: Page,
@@ -9,16 +13,21 @@ export async function runScenarioActions(
 ): Promise<void> {
   switch (kind) {
     case "cold-load":
-      await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => undefined);
+      await page
+        .waitForLoadState("networkidle", { timeout: 30_000 })
+        .catch(() => undefined);
       await page.waitForTimeout(Math.min(observationMs, 2_000));
       return;
     case "scroll": {
       await page.waitForLoadState("domcontentloaded");
       const steps = 6;
       for (let index = 0; index < steps; index++) {
-        await page.evaluate((ratio) => {
-          window.scrollTo(0, document.body.scrollHeight * ratio);
-        }, (index + 1) / steps);
+        await page.evaluate(
+          (ratio) => {
+            window.scrollTo(0, document.body.scrollHeight * ratio);
+          },
+          (index + 1) / steps,
+        );
         await page.waitForTimeout(Math.max(100, observationMs / steps));
       }
       await page.waitForTimeout(Math.min(observationMs, 1_000));
@@ -65,6 +74,8 @@ async function performStep(page: Page, step: InteractionStep): Promise<void> {
       await page.hover(step.selector, { timeout });
       return;
     default:
-      throw new Error(`Unknown interaction action: ${String((step as InteractionStep).action)}`);
+      throw new Error(
+        `Unknown interaction action: ${String((step as InteractionStep).action)}`,
+      );
   }
 }
