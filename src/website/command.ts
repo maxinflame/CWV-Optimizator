@@ -86,7 +86,10 @@ export function wslDirectSpawn(
  * - прочий UNC → pushd/popd (CMD не умеет UNC cwd);
  * - иначе обычный cwd.
  */
-export function wrapCommandForCwd(command: string, cwd: string): {
+export function wrapCommandForCwd(
+  command: string,
+  cwd: string,
+): {
   command: string;
   cwd?: string;
   direct?: { file: string; args: string[] };
@@ -144,13 +147,20 @@ export async function execNpm(
   });
 }
 
+export interface SpawnCommandOptions {
+  /** Unix: отдельная группа процессов, чтобы остановить сервер вместе с потомками. */
+  detached?: boolean;
+}
+
 export function spawnCommand(
   command: string,
   cwd: string,
   env: NodeJS.ProcessEnv,
+  options: SpawnCommandOptions = {},
 ): ReturnType<typeof spawn> {
   if (process.platform === "win32") {
     // Для WSL UNC оставляем исходную команду (npm, не npm.cmd) — внутри Linux.
+    // detached на Windows открывает отдельное окно и не нужен: дерево гасит taskkill.
     const forWrap = parseWslUncPath(cwd) ? command : rewriteNpmCommand(command);
     const wrapped = wrapCommandForCwd(forWrap, cwd);
     if (wrapped.direct) {
@@ -180,5 +190,52 @@ export function spawnCommand(
     cwd,
     env,
     stdio: ["ignore", "pipe", "pipe"],
+    detached: options.detached === true,
   });
+}
+
+function processAlreadyGone(error: unknown): boolean {
+  const stderr =
+    error && typeof error === "object" && "stderr" in error
+      ? String((error as { stderr?: unknown }).stderr ?? "")
+      : "";
+  const message = error instanceof Error ? error.message : String(error);
+  return /not found|no such process|не найден/i.test(`${message}\n${stderr}`);
+}
+
+function signalGroup(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    try {
+      process.kill(pid, signal);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+      throw error;
+    }
+  }
+}
+
+/**
+ * Завершает процесс и его потомков.
+ * На Windows `child.kill()` убивает только оболочку (`cmd` / `npm`), а `node`,
+ * слушающий порт, остаётся. `taskkill /T` гасит всё дерево.
+ */
+export async function killProcessTree(
+  pid: number,
+  signal: NodeJS.Signals = "SIGTERM",
+): Promise<void> {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return;
+  if (process.platform === "win32") {
+    try {
+      await execFileAsync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+        windowsHide: true,
+      });
+    } catch (error) {
+      if (processAlreadyGone(error)) return;
+      throw error;
+    }
+    return;
+  }
+  signalGroup(pid, signal);
 }

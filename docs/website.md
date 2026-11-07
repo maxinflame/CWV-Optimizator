@@ -3,9 +3,20 @@
 ## Состав
 
 - `src/website/` — конфиг, Git, production server, Playwright-замеры, acceptance, pipeline
+- `src/gui/` — локальный веб-интерфейс (форма запуска и просмотр прогонов)
 - `src/agents/cursor/` — Cursor Agent CLI
 - `src/runtime/` — бюджет времени и ошибки
 - `fixtures/slow-site/` — демо-сайт с намеренно медленной загрузкой
+
+## GUI
+
+```bash
+npm run gui
+```
+
+Поднимает API (`CWV_GUI_PORT`, по умолчанию `4178`) и Vite-страницу на `http://127.0.0.1:5173/`. Браузер открывается сам; отключить: `CWV_GUI_OPEN=0`. Остановка: `Ctrl+C`.
+
+Сохранённые формы GUI лежат в `configs/*.gui.json` (каталог в Git не входит).
 
 ## Методика замеров
 

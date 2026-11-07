@@ -39,6 +39,23 @@ npm run pipeline -- --project "$(pwd)/fixtures/slow-site" --config ./website.con
 
 Для своего сайта правьте `configs/website.config.ts` или `configs/website.<имя>.config.ts`. На Windows укажите абсолютный путь к репозиторию, например `C:/Projects/.../fixtures/slow-site`.
 
+## GUI
+
+Локальный веб-интерфейс для формы запуска и просмотра прогонов:
+
+```bash
+npm run gui
+```
+
+Откроется страница `http://127.0.0.1:5173/` (Vite). API слушает `http://127.0.0.1:4178/`.
+
+| Переменная | Назначение |
+| --- | --- |
+| `CWV_GUI_PORT` | Порт API (по умолчанию `4178`) |
+| `CWV_GUI_OPEN=0` | Не открывать браузер автоматически |
+
+Остановка: `Ctrl+C` в том же терминале.
+
 ## Требования к сайту
 
 - абсолютный путь к Git-репозиторию;
@@ -52,7 +69,7 @@ npm run pipeline -- --project "$(pwd)/fixtures/slow-site" --config ./website.con
 
 ## Документация
 
-- [docs/website.md](docs/website.md) — архитектура, Git safety, методика замеров
+- [docs/website.md](docs/website.md) — архитектура, GUI, Git safety, методика замеров
 - [docs/metrics.md](docs/metrics.md) — метрики CWV
 - [website.config.example.ts](website.config.example.ts) — образец конфигурации
 - Fixture с намеренно медленной загрузкой: `fixtures/slow-site`

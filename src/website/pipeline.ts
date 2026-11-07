@@ -659,7 +659,17 @@ export async function executeWebsitePipeline(
       throw error;
     } finally {
       await runner.close().catch(() => undefined);
-      await server.stop().catch(() => undefined);
+      const stopError = await server.stop().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      if (stopError && report.status !== "failed") {
+        report.status = "failed";
+        report.stopReason =
+          stopError instanceof Error ? stopError.message : String(stopError);
+        report.finishedAt = new Date().toISOString();
+        await saveWebsiteReport(directory, report).catch(() => undefined);
+      }
     }
   });
 }
